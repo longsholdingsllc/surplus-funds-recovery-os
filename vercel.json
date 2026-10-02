@@ -1,1 +1,12 @@
-{"$schema":"https://openapi.vercel.sh/vercel.json","crons":[{"path":"/api/cron/followups","schedule":"0 12 * * *"},{"path":"/api/cron/doc-expiry","schedule":"0 13 * * *"},{"path":"/api/cron/backup-check","schedule":"0 14 * * 0"},{"path":"/api/cron/outreach-drafts","schedule":"0 15 * * 1"},{"path":"/api/cron/lead-digest","schedule":"0 16 * * 1"}]}
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "crons": [
+    { "path": "/api/cron/followups", "schedule": "0 12 * * *" },
+    { "path": "/api/cron/doc-expiry", "schedule": "0 13 * * *" },
+    { "path": "/api/cron/backup-check", "schedule": "0 14 * * 0" },
+    { "path": "/api/cron/outreach-drafts", "schedule": "0 15 * * 1" },
+    { "path": "/api/cron/lead-digest", "schedule": "0 16 * * 1" }
+  ]
+}
