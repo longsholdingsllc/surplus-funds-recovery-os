@@ -194,6 +194,18 @@ export async function GET(req: NextRequest) {
             .single();
           if (error) throw error;
 
+          // Link a property row when we have identifiers
+          if (lead.parcel || lead.address) {
+            await supabase.from("properties").insert({
+              case_id: data.id,
+              parcel_id: lead.parcel,
+              address: lead.address,
+              county: entry.county,
+              state: entry.state,
+              notes: lead.snippet?.slice(0, 200) || null,
+            });
+          }
+
           await audit(
             supabase,
             "case.create",
