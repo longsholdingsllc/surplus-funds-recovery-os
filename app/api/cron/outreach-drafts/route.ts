@@ -14,8 +14,17 @@ function formatAmount(amount: unknown): string {
   return String(amount);
 }
 
-// Build a DRAFT outreach email for a "new" case. The draft is stored as a
-// task note — nothing is ever sent automatically.
+function extractScore(title: string | null, notes: string | null): number {
+  // Title format: "Surplus lead — label [score]"
+  const fromTitle = title?.match(/\[(\d+)\]/);
+  if (fromTitle) return Number(fromTitle[1]);
+  // Notes format: "Score: 42/100 (...)"
+  const fromNotes = notes?.match(/Score:\s*(\d+)/i);
+  if (fromNotes) return Number(fromNotes[1]);
+  return 0;
+}
+
+// Build a DRAFT outreach email. Stored as a task note — never sent automatically.
 function buildDraftBody(opts: {
   title: string;
   county: string | null;
@@ -45,7 +54,7 @@ function buildDraftBody(opts: {
 }
 
 // GET /api/cron/outreach-drafts — stage outreach email drafts as tasks for
-// cases with status='new'. Drafts only; never sends.
+// cases with status='new' OR high-score status='lead'. Drafts only; never sends.
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return unauthorized();
 
@@ -55,12 +64,18 @@ export async function GET(req: NextRequest) {
 
     const { data: cases, error: casesErr } = await supabase
       .from("cases")
-      .select("id, title, county, state, surplus_amount")
-      .eq("status", "new");
+      .select("id, title, county, state, surplus_amount, status, notes")
+      .in("status", ["new", "lead"]);
     if (casesErr) throw casesErr;
 
     let created = 0;
     for (const c of cases ?? []) {
+      // Only auto-draft leads that scored high enough
+      if (c.status === "lead") {
+        const score = extractScore(c.title, c.notes);
+        if (score < 40) continue;
+      }
+
       // Skip if an open "Outreach draft:" task already exists for this case.
       const { data: existing, error: existErr } = await supabase
         .from("tasks")
