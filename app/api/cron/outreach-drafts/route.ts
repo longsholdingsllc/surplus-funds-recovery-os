@@ -54,7 +54,8 @@ function buildDraftBody(opts: {
 }
 
 // GET /api/cron/outreach-drafts — stage outreach email drafts as tasks for
-// cases with status='new' OR high-score status='lead'. Drafts only; never sends.
+// cases with status='new' OR high-score status='lead'. High scores first.
+// Drafts only; never sends.
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return unauthorized();
 
@@ -68,8 +69,15 @@ export async function GET(req: NextRequest) {
       .in("status", ["new", "lead"]);
     if (casesErr) throw casesErr;
 
+    // Sort high-score leads first so the most valuable drafts appear at the top
+    const ordered = (cases ?? []).slice().sort((a, b) => {
+      const sa = extractScore(a.title, a.notes);
+      const sb = extractScore(b.title, b.notes);
+      return sb - sa;
+    });
+
     let created = 0;
-    for (const c of cases ?? []) {
+    for (const c of ordered) {
       // Only auto-draft leads that scored high enough
       if (c.status === "lead") {
         const score = extractScore(c.title, c.notes);
