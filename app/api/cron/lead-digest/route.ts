@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient, isConfigured } from "@/lib/supabase";
 import { audit } from "@/lib/audit";
 import { checkCronAuth, unauthorized, notConfigured } from "@/lib/cron";
+import { rankLeads } from "@/lib/lead-scorer";
 import counties from "@/lib/counties.json";
 
 // Shape of one entry in lib/counties.json.
@@ -25,6 +26,7 @@ const FETCH_TIMEOUT_MS = 15_000;
 const MAX_LEADS_PER_COUNTY = 25;
 const MAX_SNIPPET_CHARS = 500;
 const CONTEXT_CHARS = 80; // chars of surrounding text kept for each match
+const MIN_SCORE = 25;
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
@@ -35,7 +37,7 @@ function stripHtml(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
+    .replace(/&/g, "&")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -142,7 +144,7 @@ async function isDuplicate(
 }
 
 // GET /api/cron/lead-digest — scrape enabled county sources for surplus
-// leads and insert them as status='lead' cases. Drafts only; never sends.
+// leads, score them, and insert high-scoring ones as status='lead' cases.
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return unauthorized();
 
@@ -152,25 +154,35 @@ export async function GET(req: NextRequest) {
 
     const entries = (counties as CountyEntry[]).filter((e) => e.enabled === true);
     let inserted = 0;
-    const perCounty: Record<string, { leads: number; inserted: number; error?: string }> = {};
+    const perCounty: Record<
+      string,
+      { leads: number; scored: number; inserted: number; error?: string }
+    > = {};
 
     for (const entry of entries) {
-      perCounty[entry.county] = { leads: 0, inserted: 0 };
+      perCounty[entry.county] = { leads: 0, scored: 0, inserted: 0 };
       try {
         const text = await fetchPageText(entry.source_url);
-        const leads = extractLeads(text);
-        perCounty[entry.county].leads = leads.length;
+        const rawLeads = extractLeads(text);
+        perCounty[entry.county].leads = rawLeads.length;
 
-        for (const lead of leads) {
+        const scored = rankLeads(rawLeads, MIN_SCORE);
+        perCounty[entry.county].scored = scored.length;
+
+        for (const lead of scored) {
           if (await isDuplicate(supabase, entry, lead)) continue;
 
           const label = lead.address || lead.parcel || "unnamed";
-          const notes = `Source: ${entry.source_url}\n${lead.snippet}`;
+          const notes = [
+            `Score: ${lead.score}/100 (${lead.reasons.join(", ")})`,
+            `Source: ${entry.source_url}`,
+            lead.snippet,
+          ].join("\n");
 
           const { data, error } = await supabase
             .from("cases")
             .insert({
-              title: `Surplus lead — ${label}`,
+              title: `Surplus lead — ${label} [${lead.score}]`,
               status: "lead",
               county: entry.county,
               state: entry.state,
@@ -187,7 +199,7 @@ export async function GET(req: NextRequest) {
             "case.create",
             "case",
             data.id,
-            `source=lead-digest county=${entry.county} label=${label}`,
+            `source=lead-digest county=${entry.county} score=${lead.score} label=${label}`,
             "cron"
           );
           inserted += 1;
