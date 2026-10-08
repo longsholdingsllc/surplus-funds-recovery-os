@@ -54,6 +54,12 @@ export function scoreLead(lead: {
     reasons.push("has address");
   }
 
+  // Combo bonus: amount + identifier is much more actionable
+  if (lead.amount != null && lead.amount >= LOW_VALUE && (lead.parcel || lead.address)) {
+    score += 15;
+    reasons.push("amount + identifier combo");
+  }
+
   // Snippet quality (max 10)
   if (lead.snippet && lead.snippet.length > 40) {
     score += 10;
